@@ -1,15 +1,25 @@
 import gi
 import os
+import traceback
+
+import autostart_handler
 
 gi.require_version("Gtk", "3.0") 
 from gi.repository import Gtk
 
 class Control:
     """Control class for business logic."""
+
+    PIPEWIRE_BUFFER_CMD = 'pw-metadata -n settings 0 clock.force-quantum'
+    PIPEWIRE_SAMPLE_CMD = 'pw-metadata -n settings 0 clock.force-rate'
     
     def __init__(self, buffer=64, samples=48000, status_command='start'):
         self.buffer = buffer
         self.samples = samples
+        self.autostart_handler = autostart_handler.AutostartHandler()
+        self.autostart_status = self.autostart_handler.get_autostart_status()
+        self.autostart_buffer = self.autostart_handler.get_autostart_buffer()
+        self.autostart_samples = self.autostart_handler.get_autostart_samples()
         self.status_command = status_command
         self.control_window = None
 
@@ -29,6 +39,42 @@ class Control:
             message = "Pipewire can't be found, use the command: 'which pipewire' to see if it is installed"
             self.control_window.on_error(message, "If not, install Pipewire and try again")
 
+    def set_autostart(self):
+        """Sets current active settings as default using autostart entry"""
+        # Write autostart entry
+        self.autostart_handler.create_autostart_entry(
+            self.buffer, self.samples
+        )
+        # Update GUI values
+        self.fetch_autostart_values()
+        self.show_current_autostart()
+
+    def clear_autostart(self):
+        """Clears custom default settings by removing autostart entry"""
+        # Remove autostart entry
+        self.autostart_handler.remove_autostart_entry()
+        # Update GUI values
+        self.fetch_autostart_values()
+        self.show_current_autostart()
+
+
+    def fetch_autostart_values(self):
+        """Fetch currently configured autostart values"""
+        self.autostart_buffer = self.autostart_handler.get_autostart_buffer()
+        self.autostart_samples = self.autostart_handler.get_autostart_samples()
+        self.autostart_status = self.autostart_handler.get_autostart_status()
+
+    def show_current_autostart(self):
+        """Display autostart values in GUI"""
+        self.control_window.label_autostart_status.set_text(
+            "Enabled" if self.autostart_status else "Disabled"
+        )
+        self.control_window.label_autostart_buffer.set_text(
+            self.autostart_buffer if self.autostart_buffer else 'Not set'
+        )
+        self.control_window.label_autostart_samples.set_text(
+            self.autostart_samples if self.autostart_samples else 'Not set'
+        )
 
     def set_current_settings(self):
         current_settings = self.get_current_settings()
@@ -120,19 +166,30 @@ class ControlWindow:
         self.label_buffer_settings = self.builder.get_object("current_buffer_display")
         self.label_sample_settings = self.builder.get_object("current_sample_display")
 
+        self.label_autostart_status = self.builder.get_object("autostart_status_display")
+        self.label_autostart_buffer = self.builder.get_object("autostart_buffer_display")
+        self.label_autostart_samples = self.builder.get_object("autostart_sample_display")
+
         self.control.show_current_settings()
+        self.control.show_current_autostart()
 
         self.window.show_all()
         self.window.connect("destroy", Gtk.main_quit)
 
-    """apply & close buttons"""
+    """Connect button actions"""
 
     def on_close_clicked(self, clicked):
         Gtk.main_quit()
 
     def on_apply_clicked(self, clicked):
         self.control.apply_settings()
-    
+
+    def on_set_default_clicked(self, clicked):
+        self.control.set_autostart()
+
+    def on_clear_default_clicked(self, clicked):
+        self.control.clear_autostart()
+
     """Buffer size radio buttons"""
 
     def on_radio16_toggled(self, toggled):
